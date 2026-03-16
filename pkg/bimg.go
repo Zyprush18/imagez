@@ -1,6 +1,8 @@
 package pkg
 
 import (
+	"archive/zip"
+	"crypto/rand"
 	"fmt"
 	"sync"
 
@@ -9,22 +11,26 @@ import (
 )
 
 type JobChannels struct {
-	worker int
-	name   <-chan string
-	image  <-chan []byte
-	errs   chan<- error
-	format string
+	worker    int
+	name      <-chan string
+	nameFileZip      chan<- string
+	image     <-chan []byte
+	errs      chan<- error
+	format    string
 	wgConvert sync.WaitGroup
+	wgToZip   sync.WaitGroup
 }
 
-func NewJobChannel(worker int, image <-chan []byte, name <-chan string, errs chan<- error, format string) *JobChannels {
+func NewJobChannel(worker int, image <-chan []byte, name <-chan string, nameFileZip chan<- string, errs chan<- error, format string) *JobChannels {
 	return &JobChannels{
-		worker: worker,
-		image:  image,
-		name:   name,
-		errs:   errs,
-		format: format,
+		worker:    worker,
+		image:     image,
+		name:      name,
+		nameFileZip: nameFileZip,
+		errs:      errs,
+		format:    format,
 		wgConvert: sync.WaitGroup{},
+		wgToZip:   sync.WaitGroup{},
 	}
 }
 
@@ -48,31 +54,38 @@ func (j *JobChannels) Extension() bimg.ImageType {
 }
 
 
-func (j *JobChannels) SaveImage(name string, img []byte) error {
-	return bimg.Write("./img/"+name, img)
-}
-
 func (j *JobChannels) ConvertJob() {
-
 	ext := j.Extension()
+
 	if ext == bimg.UNKNOWN {
 		j.errs <- fmt.Errorf(utils.UNSUPPORTED_FORMAT)
 		return
 	}
+	
+	nameZip := fmt.Sprintf("./img/%s.zip", rand.Text())
+	file,zipFile, err := CreateZip(nameZip)
+	if err != nil {
+		j.errs <- err
+		return
+	}
+	
 	for i := 0; i < j.worker; i++ {
 		j.wgConvert.Add(1)
-		go j.ProcessConvert(ext)
+		go j.ProcessConvert(ext, zipFile)
 	}
 
 	go func() {
+		j.nameFileZip <- nameZip
 		j.wgConvert.Wait()
+		file.Close()
+		zipFile.Close()
 		close(j.errs)
+		close(j.nameFileZip)
 	}()
 }
 
-func (j *JobChannels) ProcessConvert(extension bimg.ImageType) {
+func (j *JobChannels) ProcessConvert(extension bimg.ImageType, file *zip.Writer) {
 	defer j.wgConvert.Done()
-
 	for v := range j.image {
 		newImg, err := bimg.NewImage(v).Convert(extension)
 		if err != nil {
@@ -81,10 +94,9 @@ func (j *JobChannels) ProcessConvert(extension bimg.ImageType) {
 		}
 		nameFile := fmt.Sprintf("%s.%s", <-j.name, j.format)
 
-		if err := j.SaveImage(nameFile, newImg); err != nil {
+		if err := SaveZip(nameFile, newImg, file); err != nil {
 			j.errs <- err
 			continue
 		}
 	}
 }
-

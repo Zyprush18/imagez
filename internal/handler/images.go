@@ -37,7 +37,11 @@ func (h *HandleImage) Convert(c *echo.Context) error {
 		})
 	}
 
-	if err := h.svc.Convert(files, formats[0]);err != nil {
+	fileName, err := h.svc.Convert(files, formats[0])
+
+	if err != nil {
+		fmt.Println(err.Error())
+
 		if err.Error() == utils.UNSUPPORTED_TYPE {
 			return c.JSON(http.StatusBadRequest, map[string]string{
 				"error": fmt.Sprintf("%s: %s", err.Error(), formats[0]),
@@ -54,19 +58,15 @@ func (h *HandleImage) Convert(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{
-		"message": "ini api untuk image convert",
-	})
+	return c.JSON(http.StatusOK, utils.NewResponse("Image converted successfully", map[string]string{
+		"file_name": fileName,
+	}))
 }
 
 func (h *HandleImage) Resize(c *echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]string{
-		"message": "ini api untuk image resize",
-	})
+	return c.JSON(http.StatusOK, utils.NewResponse("Image resized successfully", "ok"))
 }
 
 func (h *HandleImage) Compress(c *echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]string{
-		"message": "ini api untuk image resize",
-	})
+	return c.JSON(http.StatusOK, utils.NewResponse("Image compressed successfully", "ok"))
 }

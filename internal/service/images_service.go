@@ -15,7 +15,7 @@ import (
 var worker int = runtime.NumCPU()
 
 type ImagesService interface {
-	Convert (data []*multipart.FileHeader, extFormat string) error
+	Convert (data []*multipart.FileHeader, extFormat string) (string,error)
 }
 
 type ImageService struct {}
@@ -25,24 +25,25 @@ func NewServiceImage () ImagesService {
 }
 
 
-func (i *ImageService) Convert(data []*multipart.FileHeader, extFormat string) error {
+func (i *ImageService) Convert(data []*multipart.FileHeader, extFormat string) (string,error) {
 	name := make(chan string, len(data))
 	img := make(chan []byte, len(data))
 	errs := make(chan error, len(data))
+	nameFileZip := make(chan string, len(data))
 	for _, v := range data {
 		typeFile := v.Header.Get("Content-Type")
 		if err := utils.CheckType(typeFile); err != nil {
-			return err
+			return "", err
 		}
 
 		src, err := v.Open()
 		if err != nil {
-			return  err
+			return "", err
 		}
 
 		file, err := io.ReadAll(src)
 		if err != nil {
-			return err
+			return "", err
 		}
 
 		src.Close()
@@ -56,16 +57,17 @@ func (i *ImageService) Convert(data []*multipart.FileHeader, extFormat string) e
 	close(name)
 	close(img)
 
-	convert := pkg.NewJobChannel(worker, img, name, errs, extFormat)
+	convert := pkg.NewJobChannel(worker, img, name, nameFileZip, errs, extFormat)
 	convert.ConvertJob()
 
 
 	for v := range errs {
 		if v != nil {
-			return v
+			return "", v
 		}
 	}
 
+	fileName := <-nameFileZip
 
-	return nil
+	return fileName, nil
 }
