@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/Zyprush18/imagez/internal/utils"
 	"github.com/Zyprush18/imagez/pkg"
 )
 
@@ -29,6 +30,11 @@ func (i *ImageService) Convert(data []*multipart.FileHeader, extFormat string) e
 	img := make(chan []byte, len(data))
 	errs := make(chan error, len(data))
 	for _, v := range data {
+		typeFile := v.Header.Get("Content-Type")
+		if err := utils.CheckType(typeFile); err != nil {
+			return err
+		}
+
 		src, err := v.Open()
 		if err != nil {
 			return  err

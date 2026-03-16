@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/Zyprush18/imagez/internal/service"
-	"github.com/Zyprush18/imagez/pkg"
+	"github.com/Zyprush18/imagez/internal/utils"
 	"github.com/labstack/echo/v5"
 )
 
@@ -38,7 +38,12 @@ func (h *HandleImage) Convert(c *echo.Context) error {
 	}
 
 	if err := h.svc.Convert(files, formats[0]);err != nil {
-		if err.Error() == pkg.UNSUPPORTED_FORMAT {
+		if err.Error() == utils.UNSUPPORTED_TYPE {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": fmt.Sprintf("%s: %s", err.Error(), formats[0]),
+			})
+		}
+		if err.Error() == utils.UNSUPPORTED_FORMAT {
 			return c.JSON(http.StatusBadRequest, map[string]string{
 				"error": fmt.Sprintf("%s: %s", err.Error(), formats[0]),
 			})

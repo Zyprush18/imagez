@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/Zyprush18/imagez/internal/utils"
 	"github.com/h2non/bimg"
 )
 
@@ -29,7 +30,7 @@ func NewJobChannel(worker int, image <-chan []byte, name <-chan string, errs cha
 
 func (j *JobChannels) Extension() bimg.ImageType {
 	switch j.format {
-	case "jpeg":
+	case "jpg", "jpeg":
 		return bimg.JPEG
 	case "png":
 		return bimg.PNG
@@ -55,7 +56,7 @@ func (j *JobChannels) ConvertJob() {
 
 	ext := j.Extension()
 	if ext == bimg.UNKNOWN {
-		j.errs <- fmt.Errorf(UNSUPPORTED_FORMAT)
+		j.errs <- fmt.Errorf(utils.UNSUPPORTED_FORMAT)
 		return
 	}
 	for i := 0; i < j.worker; i++ {
@@ -73,12 +74,12 @@ func (j *JobChannels) ProcessConvert(extension bimg.ImageType) {
 	defer j.wgConvert.Done()
 
 	for v := range j.image {
-		nameFile := fmt.Sprintf("%s.%d", <-j.name, extension)
 		newImg, err := bimg.NewImage(v).Convert(extension)
 		if err != nil {
 			j.errs <- err
 			continue
 		}
+		nameFile := fmt.Sprintf("%s.%s", <-j.name, j.format)
 
 		if err := j.SaveImage(nameFile, newImg); err != nil {
 			j.errs <- err
