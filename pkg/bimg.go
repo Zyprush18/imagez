@@ -4,33 +4,41 @@ import (
 	"archive/zip"
 	"crypto/rand"
 	"fmt"
+	"os"
 	"sync"
 
-	"github.com/Zyprush18/imagez/internal/utils"
+	"github.com/Zyprush18/imagez/utils"
 	"github.com/h2non/bimg"
 )
 
 type JobChannels struct {
-	worker    int
-	name      <-chan string
-	nameFileZip      chan<- string
-	image     <-chan []byte
-	errs      chan<- error
-	format    string
-	wgConvert sync.WaitGroup
-	wgToZip   sync.WaitGroup
+	worker      int
+	nameFileZip chan string
+	ImgOriEntity chan utils.ImageOri
+	ZipEntity   chan ZipEntity
+	errs        chan<- error
+	format      string
+	wgConvert   sync.WaitGroup
+	wgToZip     sync.WaitGroup
+	MxToZip     sync.Mutex
 }
 
-func NewJobChannel(worker int, image <-chan []byte, name <-chan string, nameFileZip chan<- string, errs chan<- error, format string) *JobChannels {
+type ZipEntity struct {
+	name string
+	image []byte
+}
+
+func NewJobChannel(worker int, ImgOriEntity chan utils.ImageOri, nameFileZip chan string, errs chan<- error, format string) *JobChannels {
 	return &JobChannels{
-		worker:    worker,
-		image:     image,
-		name:      name,
+		worker:      worker,
+		ImgOriEntity: ImgOriEntity,
 		nameFileZip: nameFileZip,
-		errs:      errs,
-		format:    format,
-		wgConvert: sync.WaitGroup{},
-		wgToZip:   sync.WaitGroup{},
+		ZipEntity:   make(chan ZipEntity),
+		errs:        errs,
+		format:      format,
+		wgConvert:   sync.WaitGroup{},
+		wgToZip:     sync.WaitGroup{},
+		MxToZip:     sync.Mutex{},
 	}
 }
 
@@ -53,48 +61,79 @@ func (j *JobChannels) Extension() bimg.ImageType {
 	}
 }
 
+func (j *JobChannels) createZip(NameZip string) (file *os.File, zipWriter *zip.Writer, err error) {
+	file, err = os.Create(NameZip)
+	if err != nil {
+		return nil, nil, err
+	}
+	return file, zip.NewWriter(file), nil
+}
 
 func (j *JobChannels) ConvertJob() {
 	ext := j.Extension()
 
 	if ext == bimg.UNKNOWN {
 		j.errs <- fmt.Errorf(utils.UNSUPPORTED_FORMAT)
+		close(j.errs)
 		return
 	}
-	
 	nameZip := fmt.Sprintf("./img/%s.zip", rand.Text())
-	file,zipFile, err := CreateZip(nameZip)
+	file, zipFile, err := j.createZip(nameZip)
 	if err != nil {
 		j.errs <- err
+		close(j.errs)
 		return
 	}
-	
+
 	for i := 0; i < j.worker; i++ {
 		j.wgConvert.Add(1)
-		go j.ProcessConvert(ext, zipFile)
+		go j.ProcessConvert(ext)
 	}
 
+	j.wgToZip.Add(1)
+	go j.ProcessSaveZip(nameZip, zipFile)
+
 	go func() {
-		j.nameFileZip <- nameZip
 		j.wgConvert.Wait()
-		file.Close()
+		close(j.ZipEntity)
+		j.wgToZip.Wait()
+
 		zipFile.Close()
-		close(j.errs)
+		file.Close()
+
+		j.nameFileZip <- nameZip
 		close(j.nameFileZip)
+		close(j.errs)
 	}()
 }
 
-func (j *JobChannels) ProcessConvert(extension bimg.ImageType, file *zip.Writer) {
+func (j *JobChannels) ProcessConvert(extension bimg.ImageType) {
 	defer j.wgConvert.Done()
-	for v := range j.image {
-		newImg, err := bimg.NewImage(v).Convert(extension)
+	for v := range j.ImgOriEntity {
+		newImg, err := bimg.NewImage(v.Image).Convert(extension)
 		if err != nil {
 			j.errs <- err
 			continue
 		}
-		nameFile := fmt.Sprintf("%s.%s", <-j.name, j.format)
+		j.ZipEntity <- ZipEntity{
+			name: fmt.Sprintf("%s-%s", v.Name, rand.Text()),
+			image: newImg,
+		}
+	}
 
-		if err := SaveZip(nameFile, newImg, file); err != nil {
+}
+
+func (j *JobChannels) ProcessSaveZip(nameZip string, zipFile *zip.Writer) {
+	defer j.wgToZip.Done()
+	for v := range j.ZipEntity {
+		nameFile := fmt.Sprintf("imagez-%s.%s", v.name, j.format)
+		f, err := zipFile.Create(nameFile)
+		if err != nil {
+			j.errs <- err
+			continue
+		}
+
+		if _, err := f.Write(v.image); err != nil {
 			j.errs <- err
 			continue
 		}

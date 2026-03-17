@@ -5,20 +5,17 @@ import (
 	"net/http"
 
 	"github.com/Zyprush18/imagez/internal/service"
-	"github.com/Zyprush18/imagez/internal/utils"
+	"github.com/Zyprush18/imagez/utils"
 	"github.com/labstack/echo/v5"
 )
-
 
 type HandleImage struct {
 	svc service.ImagesService
 }
 
-
 func NewHandleImage(svc service.ImagesService) *HandleImage {
 	return &HandleImage{svc: svc}
 }
-
 
 func (h *HandleImage) Convert(c *echo.Context) error {
 	file, err := c.MultipartForm()
@@ -27,7 +24,7 @@ func (h *HandleImage) Convert(c *echo.Context) error {
 			"error": "Failed to retrieve image file",
 		})
 	}
-	
+
 	files := file.File["images"]
 	formats := file.Value["format"]
 
@@ -40,7 +37,7 @@ func (h *HandleImage) Convert(c *echo.Context) error {
 	fileName, err := h.svc.Convert(files, formats[0])
 
 	if err != nil {
-		fmt.Println(err.Error())
+		c.Logger().Error(err.Error())
 
 		if err.Error() == utils.UNSUPPORTED_TYPE {
 			return c.JSON(http.StatusBadRequest, map[string]string{
