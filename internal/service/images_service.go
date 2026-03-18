@@ -101,7 +101,7 @@ func (i *ImageService) Resize(data []*multipart.FileHeader, width, height int) (
 	close(ImageData)
 
 	resize := pkg.NewJobChannel(worker, ImageData, zipFileName, errs, "")
-	resize.Resize(width, height)
+	resize.ResizeJob(width, height)
 
 	for v := range errs {
 		if v != nil {

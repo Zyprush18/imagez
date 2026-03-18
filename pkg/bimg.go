@@ -14,32 +14,34 @@ import (
 )
 
 type JobChannels struct {
-	worker      int
-	nameFileZip chan string
-	ImgOriEntity chan utils.ImageOri
-	ZipEntity   chan ZipEntity
-	errs        chan<- error
-	format      string
-	wgConvert, wgResize, wgToZip, wgCompress   sync.WaitGroup
+	worker                                   int
+	nameFileZip                              chan string
+	ImgOriEntity                             chan utils.ImageOri
+	ZipEntity                                chan *ZipEntity
+	errs                                     chan<- error
+	format                                   string
+	wgConvert, wgResize, wgToZip, wgCompress sync.WaitGroup
+	MxResize                                 sync.Mutex
 }
 
 type ZipEntity struct {
-	name string
+	name  string
 	image []byte
 }
 
 func NewJobChannel(worker int, ImgOriEntity chan utils.ImageOri, nameFileZip chan string, errs chan<- error, format string) *JobChannels {
 	return &JobChannels{
-		worker:      worker,
+		worker:       worker,
 		ImgOriEntity: ImgOriEntity,
-		nameFileZip: nameFileZip,
-		ZipEntity:   make(chan ZipEntity),
-		errs:        errs,
-		format:      format,
-		wgConvert:   sync.WaitGroup{},
-		wgResize:    sync.WaitGroup{},
-		wgToZip:       sync.WaitGroup{},
-		wgCompress:  sync.WaitGroup{},
+		nameFileZip:  nameFileZip,
+		ZipEntity:    make(chan *ZipEntity),
+		errs:         errs,
+		format:       format,
+		wgConvert:    sync.WaitGroup{},
+		wgResize:     sync.WaitGroup{},
+		wgToZip:      sync.WaitGroup{},
+		wgCompress:   sync.WaitGroup{},
+		MxResize:     sync.Mutex{},
 	}
 }
 
@@ -70,12 +72,10 @@ func (j *JobChannels) createZip(NameZip string) (file *os.File, zipWriter *zip.W
 	return file, zip.NewWriter(file), nil
 }
 
-
 func (j *JobChannels) ProcessSaveZip(nameZip string, zipFile *zip.Writer) {
 	defer j.wgToZip.Done()
 	for v := range j.ZipEntity {
-		nameFile := v.name
-		f, err := zipFile.Create(nameFile)
+		f, err := zipFile.Create(v.name)
 		if err != nil {
 			j.errs <- err
 			continue
@@ -134,16 +134,15 @@ func (j *JobChannels) ProcessConvert(extension bimg.ImageType) {
 			j.errs <- err
 			continue
 		}
-		j.ZipEntity <- ZipEntity{
-			name: fmt.Sprintf("%s-%s", v.Name, rand.Text()),
+		j.ZipEntity <- &ZipEntity{
+			name:  fmt.Sprintf("%s-%s.%s", v.Name, rand.Text(), j.format),
 			image: newImg,
 		}
 	}
 
 }
 
-
-func (j *JobChannels) Resize(width, height int) {
+func (j *JobChannels) ResizeJob(width, height int) {
 	nameZip := fmt.Sprintf("./img/%s.zip", rand.Text())
 	file, zipFile, err := j.createZip(nameZip)
 	if err != nil {
@@ -154,45 +153,46 @@ func (j *JobChannels) Resize(width, height int) {
 
 	for i := 0; i < j.worker; i++ {
 		j.wgResize.Add(1)
-		go j.ProcessResize(width, height)
+		go j.ProcessResize(width, height, i)
 	}
-
 
 	j.wgToZip.Add(1)
 	go j.ProcessSaveZip(nameZip, zipFile)
-
 
 	go func() {
 		j.wgResize.Wait()
 		close(j.ZipEntity)
 		j.wgToZip.Wait()
-		file.Close()
-		zipFile.Close()
+		
 		j.nameFileZip <- nameZip
+
+		zipFile.Close()
+		file.Close()
 		close(j.nameFileZip)
 		close(j.errs)
 	}()
 
 }
 
-
-func (j *JobChannels) ProcessResize(width, height int) {
+func (j *JobChannels) ProcessResize(width, height, worker int) {
 	defer j.wgResize.Done()
 	for v := range j.ImgOriEntity {
-		j.format = strings.Trim(filepath.Ext(v.Name), ".")
-		ext := j.Extension()
-		if ext == bimg.UNKNOWN {
+		format := strings.Trim(filepath.Ext(v.Name), ".")
+		switch format {
+		case "jpg", "jpeg", "png", "webp", "gif", "avif", "tiff":
+			newImg, err := bimg.NewImage(v.Image).Resize(width, height)
+			if err != nil {
+				j.errs <- err
+				continue
+			}
+			j.ZipEntity <- &ZipEntity{
+				name:  fmt.Sprintf("%s-%s.%s", strings.TrimSuffix(v.Name, filepath.Ext(v.Name)), rand.Text(), format),
+				image: newImg,
+			}
+		default:
 			j.errs <- fmt.Errorf(utils.UNSUPPORTED_FORMAT)
 			continue
 		}
-		newImg, err := bimg.NewImage(v.Image).Resize(width, height)
-		if err != nil {
-			j.errs <- err
-			continue
-		}
-		j.ZipEntity <- ZipEntity{
-			name: fmt.Sprintf("%s-%s", strings.TrimSuffix(v.Name, filepath.Ext(v.Name)), rand.Text()),
-			image: newImg,
-		}
+
 	}
 }
