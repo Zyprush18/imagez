@@ -1,6 +1,9 @@
 package utils
 
-import "errors"
+import (
+	"errors"
+	"strconv"
+)
 
 const (
 	UNSUPPORTED_FORMAT string = "unsupported format"
@@ -24,4 +27,12 @@ func CheckType(typefile string) error {
 		}
 	}
 	return errors.New(UNSUPPORTED_TYPE)
+}
+
+func ConvertToInt(s string) (int, error) {
+	i, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, err
+	}
+	return i, nil
 }

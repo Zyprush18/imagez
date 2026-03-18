@@ -1,9 +1,15 @@
 package utils
 
+func NewResponse[T string | any](message, err string, data T) map[string]interface{} {
+	if err != "" {
+		return map[string]interface{}{
+			"message": message,
+			"error":   err,
+		}
+	}
 
-func NewResponse[T string | any ](message string, data T) map[string]interface{} {
 	return map[string]interface{}{
 		"message": message,
-		"data": data,
+		"data":    data,
 	}
 }
