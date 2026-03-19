@@ -16,6 +16,7 @@ var worker int = runtime.NumCPU()
 type ImagesService interface {
 	Convert(data []*multipart.FileHeader, extFormat string) (string, error)
 	Resize(data []*multipart.FileHeader, width, height int) (string, error)
+	Compress(data []*multipart.FileHeader,size int) (string, error)
 }
 
 type ImageService struct{}
@@ -112,4 +113,49 @@ func (i *ImageService) Resize(data []*multipart.FileHeader, width, height int) (
 	fileName := <-zipFileName
 
 	return fileName, nil
+}
+
+func (i *ImageService) Compress(data []*multipart.FileHeader,  size int) (string, error) {
+	imgFile := make(chan utils.ImageOri, len(data))
+	FileNameZip := make(chan string, 1)
+	errs := make(chan error, worker)
+
+	for _, v := range data {
+		typeFile := v.Header.Get("Content-Type")
+		if err := utils.CheckType(typeFile); err != nil {
+			return "", err
+		}
+
+		src, err := v.Open()
+		if err != nil {
+			return "", err
+		}
+
+		file, err := io.ReadAll(src)
+		if err != nil {
+			return "", err
+		}
+
+		src.Close()
+
+		imgFile <- utils.ImageOri{
+			Name:  v.Filename,
+			Image: file,
+		}
+	}
+
+	close(imgFile)
+
+	compress := pkg.NewJobChannel(worker, imgFile, FileNameZip, errs, "")
+	compress.CompressJob(size)
+
+	for v := range errs {
+		if v != nil {
+			return "", v
+		}
+	}
+
+	nameFile := <-FileNameZip
+
+	return nameFile, nil
 }

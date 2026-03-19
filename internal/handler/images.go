@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/Zyprush18/imagez/internal/service"
 	"github.com/Zyprush18/imagez/utils"
@@ -85,9 +86,11 @@ func (h *HandleImage) Resize(c *echo.Context) error {
 		if err.Error() == utils.UNSUPPORTED_TYPE {
 			return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed to resize image", err.Error(),  map[string]string{}))
 		}
+
 		if err.Error() == utils.UNSUPPORTED_FORMAT {
 			return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed to resize image", "image file format not supported", map[string]string{}))
 		}
+
 		return c.JSON(http.StatusInternalServerError, utils.NewResponse("Failed to resize image", err.Error(), map[string]string{}))
 	}
 
@@ -97,5 +100,42 @@ func (h *HandleImage) Resize(c *echo.Context) error {
 }
 
 func (h *HandleImage) Compress(c *echo.Context) error {
-	return c.JSON(http.StatusOK, utils.NewResponse("Image compressed successfully", "", map[string]string{}))
+	file, err := c.MultipartForm()
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed Request", "Failed to retrieve image file", map[string]string{}))
+	}
+
+	imgFile := file.File["images"]
+	value := file.Value
+
+	if imgFile == nil || value == nil {
+		return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed Request", "Missing required fields", map[string]string{}))
+	}
+
+	size, err := strconv.Atoi(value["size"][0])
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed Request", "Invalid size value", map[string]string{}))
+	}
+
+	
+
+	fileZip, err := h.svc.Compress(imgFile, size)
+	if err != nil {
+		c.Logger().Error(err.Error())
+
+		if err.Error() == utils.UNSUPPORTED_TYPE {
+			return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed to compress image", err.Error(),  map[string]string{}))
+		}
+
+		if err.Error() == utils.UNSUPPORTED_FORMAT {
+			return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed to compress image", "image file format not supported", map[string]string{}))
+		}
+		
+		return c.JSON(http.StatusInternalServerError, utils.NewResponse("Failed to compress image", err.Error(), map[string]string{}))
+
+	}
+
+	return c.JSON(http.StatusOK, utils.NewResponse("Image compressed successfully", "", map[string]string{
+		"file_name": fileZip,
+	}))
 }
