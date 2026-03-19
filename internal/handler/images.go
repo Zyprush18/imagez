@@ -117,7 +117,6 @@ func (h *HandleImage) Compress(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed Request", "Invalid size value", map[string]string{}))
 	}
 
-	
 
 	fileZip, err := h.svc.Compress(imgFile, size)
 	if err != nil {
@@ -138,4 +137,57 @@ func (h *HandleImage) Compress(c *echo.Context) error {
 	return c.JSON(http.StatusOK, utils.NewResponse("Image compressed successfully", "", map[string]string{
 		"file_name": fileZip,
 	}))
+}
+
+
+func (h *HandleImage) Crop(c *echo.Context) error {
+	file, err := c.MultipartForm()
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed Request", "Failed to retrieve image file", map[string]string{}))
+	}	
+	
+
+	imgFile := file.File["images"]
+	value := file.Value
+
+	if imgFile == nil || value == nil {
+		return  c.JSON(http.StatusBadRequest,  utils.NewResponse("Failed Request", "Missing required fields", map[string]string{}))
+	}
+
+
+	width, err := strconv.Atoi(value["width"][0])
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed Request", "Invalid width value", map[string]string{}))
+	}
+
+	height, err := strconv.Atoi(value["height"][0])
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed Request", "Invalid height value", map[string]string{}))
+	}
+
+
+	filename, err := h.svc.Crop(imgFile, width, height)
+	if err != nil {
+		c.Logger().Error(err.Error())
+
+		if err.Error() == utils.UNSUPPORTED_TYPE {
+			return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed to crop image", err.Error(),  map[string]string{}))
+		}
+
+		if err.Error() == utils.UNSUPPORTED_FORMAT {
+			return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed to crop image", "image file format not supported", map[string]string{}))
+		}
+
+		if err.Error() == utils.INVALID_CROP_PARAMETERS {
+			return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed to crop image", err.Error(), map[string]string{}))
+		}
+		
+		return c.JSON(http.StatusInternalServerError, utils.NewResponse("Failed to crop image", err.Error(), map[string]string{}))
+
+	}
+
+	return c.JSON(http.StatusOK, utils.NewResponse("Image cropped successfully", "", map[string]string{
+		"file_name": filename,
+	}))
+
 }

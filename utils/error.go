@@ -8,6 +8,7 @@ import (
 const (
 	UNSUPPORTED_FORMAT string = "unsupported format"
 	UNSUPPORTED_TYPE   string = "unsupported type"
+	INVALID_CROP_PARAMETERS string = "invalid crop parameters"
 )
 
 func CheckType(typefile string) error {

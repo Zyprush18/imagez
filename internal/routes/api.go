@@ -21,4 +21,5 @@ func Routes(e *echo.Echo, vhost map[string]*echo.Echo)  {
 	apiV1.POST("/convert", HandleImage.Convert)
 	apiV1.POST("/resize", HandleImage.Resize)
 	apiV1.POST("/compress", HandleImage.Compress)
+	apiV1.POST("/crop", HandleImage.Crop)
 }

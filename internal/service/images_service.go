@@ -17,6 +17,7 @@ type ImagesService interface {
 	Convert(data []*multipart.FileHeader, extFormat string) (string, error)
 	Resize(data []*multipart.FileHeader, width, height int) (string, error)
 	Compress(data []*multipart.FileHeader,size int) (string, error)
+	Crop(data []*multipart.FileHeader, width, height int) (string, error)
 }
 
 type ImageService struct{}
@@ -158,4 +159,51 @@ func (i *ImageService) Compress(data []*multipart.FileHeader,  size int) (string
 	nameFile := <-FileNameZip
 
 	return nameFile, nil
+}
+
+
+
+func (i *ImageService) Crop(data []*multipart.FileHeader, width, height int) (string, error) {
+	imgFile := make(chan utils.ImageOri, len(data))
+	zipFileName := make(chan string, 1)
+	errs := make(chan error, worker)
+
+	for _, v := range data {
+		typeFile := v.Header.Get("Content-Type")
+		if err := utils.CheckType(typeFile); err != nil {
+			return "", err
+		}
+
+		src, err := v.Open()
+		if err != nil {
+			return "", err
+		}
+
+		file, err := io.ReadAll(src)
+		if err != nil {
+			return "", err
+		}
+
+		src.Close()
+
+		imgFile <- utils.ImageOri{
+			Name:  v.Filename,
+			Image: file,
+		}
+	}
+
+	close(imgFile)
+
+	crop := pkg.NewJobChannel(worker, imgFile, zipFileName, errs, "")
+	crop.CropJob(width, height)
+
+	for v := range errs {
+		if v != nil {
+			return "", v
+		}
+	}
+
+	fileName := <-zipFileName
+
+	return fileName, nil
 }

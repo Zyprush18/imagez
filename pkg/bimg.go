@@ -14,13 +14,13 @@ import (
 )
 
 type JobChannels struct {
-	worker                                   int
-	nameFileZip                              chan string
-	ImgOriEntity                             chan utils.ImageOri
-	ZipEntity                                chan *ZipEntity
-	errs                                     chan<- error
-	format                                   string
-	wgConvert, wgResize, wgToZip, wgCompress sync.WaitGroup
+	worker       int
+	nameFileZip  chan string
+	ImgOriEntity chan utils.ImageOri
+	ZipEntity    chan *ZipEntity
+	errs         chan<- error
+	format       string
+	wg, wgTozip  sync.WaitGroup
 }
 
 type ZipEntity struct {
@@ -36,10 +36,8 @@ func NewJobChannel(worker int, ImgOriEntity chan utils.ImageOri, nameFileZip cha
 		ZipEntity:    make(chan *ZipEntity),
 		errs:         errs,
 		format:       format,
-		wgConvert:    sync.WaitGroup{},
-		wgResize:     sync.WaitGroup{},
-		wgToZip:      sync.WaitGroup{},
-		wgCompress:   sync.WaitGroup{},
+		wg:           sync.WaitGroup{},
+		wgTozip:      sync.WaitGroup{},
 	}
 }
 
@@ -71,7 +69,7 @@ func (j *JobChannels) createZip(NameZip string) (file *os.File, zipWriter *zip.W
 }
 
 func (j *JobChannels) ProcessSaveZip(nameZip string, zipFile *zip.Writer) {
-	defer j.wgToZip.Done()
+	defer j.wgTozip.Done()
 	for v := range j.ZipEntity {
 		f, err := zipFile.Create(v.name)
 		if err != nil {
@@ -103,17 +101,17 @@ func (j *JobChannels) ConvertJob() {
 	}
 
 	for i := 0; i < j.worker; i++ {
-		j.wgConvert.Add(1)
+		j.wg.Add(1)
 		go j.ProcessConvert(ext)
 	}
 
-	j.wgToZip.Add(1)
+	j.wgTozip.Add(1)
 	go j.ProcessSaveZip(nameZip, zipFile)
 
 	go func() {
-		j.wgConvert.Wait()
+		j.wg.Wait()
 		close(j.ZipEntity)
-		j.wgToZip.Wait()
+		j.wgTozip.Wait()
 
 		zipFile.Close()
 		file.Close()
@@ -134,17 +132,17 @@ func (j *JobChannels) ResizeJob(width, height int) {
 	}
 
 	for i := 0; i < j.worker; i++ {
-		j.wgResize.Add(1)
-		go j.ProcessResize(width, height, i)
+		j.wg.Add(1)
+		go j.ProcessResize(width, height)
 	}
 
-	j.wgToZip.Add(1)
+	j.wgTozip.Add(1)
 	go j.ProcessSaveZip(nameZip, zipFile)
 
 	go func() {
-		j.wgResize.Wait()
+		j.wg.Wait()
 		close(j.ZipEntity)
-		j.wgToZip.Wait()
+		j.wgTozip.Wait()
 
 		j.nameFileZip <- nameZip
 
@@ -165,17 +163,17 @@ func (j *JobChannels) CompressJob(size int) {
 	}
 
 	for i := 0; i < j.worker; i++ {
-		j.wgCompress.Add(1)
+		j.wg.Add(1)
 		go j.ProcessCompress(size)
 	}
 
-	j.wgToZip.Add(1)
+	j.wgTozip.Add(1)
 	go j.ProcessSaveZip(nameZip, zipFile)
 
 	go func() {
-		j.wgCompress.Wait()
+		j.wg.Wait()
 		close(j.ZipEntity)
-		j.wgToZip.Wait()
+		j.wgTozip.Wait()
 
 		j.nameFileZip <- nameZip
 
@@ -184,11 +182,41 @@ func (j *JobChannels) CompressJob(size int) {
 		close(j.nameFileZip)
 		close(j.errs)
 	}()
+}
 
+func (j *JobChannels) CropJob(width, height int) {
+	nameZip := fmt.Sprintf("./img/%s.zip", rand.Text())
+	file, zipFile, err := j.createZip(nameZip)
+	if err != nil {
+		j.errs <- err
+		close(j.errs)
+		return
+	}
+
+	for i := 0; i < j.worker; i++ {
+		j.wg.Add(1)
+		go j.ProcessCrop(width, height)
+	}
+
+	j.wgTozip.Add(1)
+	go j.ProcessSaveZip(nameZip, zipFile)
+
+	go func() {
+		j.wg.Wait()
+		close(j.ZipEntity)
+		j.wgTozip.Wait()
+
+		j.nameFileZip <- nameZip
+
+		zipFile.Close()
+		file.Close()
+		close(j.nameFileZip)
+		close(j.errs)
+	}()
 }
 
 func (j *JobChannels) ProcessConvert(extension bimg.ImageType) {
-	defer j.wgConvert.Done()
+	defer j.wg.Done()
 	for v := range j.ImgOriEntity {
 		newImg, err := bimg.NewImage(v.Image).Convert(extension)
 		if err != nil {
@@ -203,31 +231,26 @@ func (j *JobChannels) ProcessConvert(extension bimg.ImageType) {
 
 }
 
-func (j *JobChannels) ProcessResize(width, height, worker int) {
-	defer j.wgResize.Done()
+func (j *JobChannels) ProcessResize(width, height int) {
+	defer j.wg.Done()
 	for v := range j.ImgOriEntity {
 		format := strings.Trim(filepath.Ext(v.Name), ".")
-		switch format {
-		case "jpg", "jpeg", "png", "webp", "gif", "avif", "tiff":
-			newImg, err := bimg.NewImage(v.Image).Resize(width, height)
-			if err != nil {
-				j.errs <- err
-				continue
-			}
-			j.ZipEntity <- &ZipEntity{
-				name:  fmt.Sprintf("%s-%s.%s", strings.TrimSuffix(v.Name, filepath.Ext(v.Name)), rand.Text(), format),
-				image: newImg,
-			}
-		default:
-			j.errs <- fmt.Errorf(utils.UNSUPPORTED_FORMAT)
+
+		newImg, err := bimg.NewImage(v.Image).Resize(width, height)
+		if err != nil {
+			j.errs <- err
 			continue
+		}
+		j.ZipEntity <- &ZipEntity{
+			name:  fmt.Sprintf("%s-%s.%s", strings.TrimSuffix(v.Name, filepath.Ext(v.Name)), rand.Text(), format),
+			image: newImg,
 		}
 
 	}
 }
 
 func (j *JobChannels) ProcessCompress(size int) {
-	defer j.wgCompress.Done()
+	defer j.wg.Done()
 	for v := range j.ImgOriEntity {
 		var newImg []byte
 		var err error
@@ -247,8 +270,7 @@ func (j *JobChannels) ProcessCompress(size int) {
 				continue
 			}
 
-			if len(newImg) >= size-(1024 * 100) && len(newImg) <= size+(1024 * 100) {
-				fmt.Println("masukkk")
+			if len(newImg) >= size-(1024*100) && len(newImg) <= size+(1024*100) {
 				break
 			}
 
@@ -263,5 +285,35 @@ func (j *JobChannels) ProcessCompress(size int) {
 			name:  fmt.Sprintf("%s-%s.%s", strings.TrimSuffix(v.Name, filepath.Ext(v.Name)), rand.Text(), extFile),
 			image: newImg,
 		}
+	}
+}
+
+func (j *JobChannels) ProcessCrop(width, height int) {
+	defer j.wg.Done()
+	for v := range j.ImgOriEntity {
+		var newImg []byte
+		var err error
+		format := strings.Trim(filepath.Ext(v.Name), ".")
+
+		if height != 0 && width != 0 {
+			newImg, err = bimg.NewImage(v.Image).Crop(width, height, bimg.GravityCentre)
+		}else if height == 0 {
+			newImg, err = bimg.NewImage(v.Image).CropByWidth(width)
+		}else if width == 0 {
+			newImg, err = bimg.NewImage(v.Image).CropByHeight(height)
+		}else {
+			j.errs <- fmt.Errorf(utils.INVALID_CROP_PARAMETERS)
+			continue
+		}
+
+		if err != nil {
+			j.errs <- err
+			continue
+		}
+		j.ZipEntity <- &ZipEntity{
+			name:  fmt.Sprintf("%s-%s.%s", strings.TrimSuffix(v.Name, filepath.Ext(v.Name)), rand.Text(), format),
+			image: newImg,
+		}
+
 	}
 }
