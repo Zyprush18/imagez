@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 
 	"github.com/Zyprush18/imagez/utils"
@@ -22,6 +20,7 @@ type JobChannels struct {
 	errs         chan<- error
 	format       string
 	wg, wgTozip  sync.WaitGroup
+	watermark    bimg.Watermark
 }
 
 type ZipEntity struct {
@@ -39,6 +38,14 @@ func NewJobChannel(worker int, ImgOriEntity chan utils.ImageOri, nameFileZip cha
 		format:       format,
 		wg:           sync.WaitGroup{},
 		wgTozip:      sync.WaitGroup{},
+		watermark: bimg.Watermark{
+			Opacity:    0.25,
+			Width:      200,
+			DPI:        100,
+			Margin:     150,
+			Font:       "sans bold 12",
+			Background: bimg.Color{R: 255, G: 255, B: 255},
+		},
 	}
 }
 
@@ -219,6 +226,39 @@ func (j *JobChannels) CropJob(width, height int) {
 	}()
 }
 
+func (j *JobChannels) WatermarkJob(text string) {
+	j.watermark.Text = text
+	nameZip := fmt.Sprintf("./img/%s.zip", rand.Text())
+	file, zipFile, err := j.createZip(nameZip)
+	if err != nil {
+		j.errs <- err
+		close(j.errs)
+		return
+	}
+
+	for i := 0; i < j.worker; i++ {
+		j.wg.Add(1)
+		go j.ProcessWatermark()
+	}
+
+	j.wgTozip.Add(1)
+	go j.ProcessSaveZip(nameZip, zipFile)
+
+	go func() {
+		j.wg.Wait()
+		close(j.ZipEntity)
+		j.wgTozip.Wait()
+
+		j.nameFileZip <- nameZip
+
+		zipFile.Close()
+		file.Close()
+		close(j.nameFileZip)
+		close(j.errs)
+	}()
+
+}
+
 func (j *JobChannels) ProcessConvert(extension bimg.ImageType) {
 	defer j.wg.Done()
 	for v := range j.ImgOriEntity {
@@ -228,7 +268,7 @@ func (j *JobChannels) ProcessConvert(extension bimg.ImageType) {
 			continue
 		}
 		j.ZipEntity <- &ZipEntity{
-			name:  fmt.Sprintf("%s-%s.%s", v.Name, rand.Text(), j.format),
+			name:  fmt.Sprintf("Convert-%s.%s", v.Name,  j.format),
 			image: newImg,
 		}
 	}
@@ -238,7 +278,6 @@ func (j *JobChannels) ProcessConvert(extension bimg.ImageType) {
 func (j *JobChannels) ProcessResize(width, height int) {
 	defer j.wg.Done()
 	for v := range j.ImgOriEntity {
-		format := strings.Trim(filepath.Ext(v.Name), ".")
 
 		newImg, err := bimg.NewImage(v.Image).Resize(width, height)
 		if err != nil {
@@ -246,7 +285,7 @@ func (j *JobChannels) ProcessResize(width, height int) {
 			continue
 		}
 		j.ZipEntity <- &ZipEntity{
-			name:  fmt.Sprintf("%s-%s.%s", strings.TrimSuffix(v.Name, filepath.Ext(v.Name)), rand.Text(), format),
+			name:  fmt.Sprintf("Resize-%s", v.Name),
 			image: newImg,
 		}
 
@@ -259,7 +298,6 @@ func (j *JobChannels) ProcessCompress(size int) {
 		var newImg []byte
 		var err error
 		quality := 80
-		extFile := strings.Trim(filepath.Ext(v.Name), ".")
 
 		for i := 0; i < 8; i++ {
 			if quality > 100 {
@@ -286,7 +324,7 @@ func (j *JobChannels) ProcessCompress(size int) {
 		}
 
 		j.ZipEntity <- &ZipEntity{
-			name:  fmt.Sprintf("%s-%s.%s", strings.TrimSuffix(v.Name, filepath.Ext(v.Name)), rand.Text(), extFile),
+			name:  fmt.Sprintf("Compress-%s", v.Name),
 			image: newImg,
 		}
 	}
@@ -297,7 +335,6 @@ func (j *JobChannels) ProcessCrop(width, height int) {
 	for v := range j.ImgOriEntity {
 		var newImg []byte
 		var err error
-		format := strings.Trim(filepath.Ext(v.Name), ".")
 
 		if height != 0 && width != 0 {
 			newImg, err = bimg.NewImage(v.Image).Crop(width, height, bimg.GravityCentre)
@@ -315,9 +352,26 @@ func (j *JobChannels) ProcessCrop(width, height int) {
 			continue
 		}
 		j.ZipEntity <- &ZipEntity{
-			name:  fmt.Sprintf("%s-%s.%s", strings.TrimSuffix(v.Name, filepath.Ext(v.Name)), rand.Text(), format),
+			name:  fmt.Sprintf("Crop-%s", v.Name),
 			image: newImg,
 		}
 
+	}
+}
+
+
+func (j *JobChannels) ProcessWatermark()  {
+	defer j.wg.Done()
+	for v := range j.ImgOriEntity {
+		newImg, err := bimg.NewImage(v.Image).Watermark(j.watermark)
+		if err != nil {
+			j.errs <- err
+			continue
+		}
+
+		j.ZipEntity <- &ZipEntity{
+			name: v.Name,
+			image: newImg,
+		}
 	}
 }

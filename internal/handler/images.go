@@ -22,18 +22,15 @@ func NewHandleImage(svc service.ImagesService) *HandleImage {
 func (h *HandleImage) Convert(c *echo.Context) error {
 	file, err := c.MultipartForm()
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Failed to retrieve image file",
-		})
+		return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed Request", "Failed to retrieve image file", map[string]string{}))
 	}
 
 	files := file.File["images"]
 	formats := file.Value["format"]
 
 	if files == nil || formats == nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Missing field image or format",
-		})
+		return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed Request", "Missing field image or format", map[string]string{}))
+
 	}
 
 	fileName, err := h.svc.Convert(files, formats[0])
@@ -190,8 +187,43 @@ func (h *HandleImage) Crop(c *echo.Context) error {
 	return c.JSON(http.StatusOK, utils.NewResponse("Image cropped successfully", "", map[string]string{
 		"file_name": filename,
 	}))
-
 }
+
+func (h *HandleImage) Watermark(c *echo.Context) error  {
+	file, err := c.MultipartForm()
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed Request", "Failed to retrieve image file", map[string]string{}))
+	}
+
+	files := file.File["images"]
+	text := file.Value["text"]
+
+	if files == nil || text == nil {
+		return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed Request", "Missing field image or text", map[string]string{}))
+	}
+
+	filename, err := h.svc.Watermark(files, text[0])
+	if err != nil {
+		c.Logger().Error(err.Error())
+		if err.Error() == utils.UNSUPPORTED_TYPE {
+			return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed to watermark image", err.Error(),  map[string]string{}))
+		}
+
+		if err.Error() == utils.UNSUPPORTED_FORMAT {
+			return c.JSON(http.StatusBadRequest, utils.NewResponse("Failed to watermark image", "image file format not supported", map[string]string{}))
+		}
+		
+		return c.JSON(http.StatusInternalServerError, utils.NewResponse("Failed to watermark image", err.Error(), map[string]string{}))
+	}
+
+
+	return c.JSON(http.StatusOK, utils.NewResponse("Image watermarked successfully", "", map[string]string{
+		"file_name": filename,
+	}))
+}
+
+
+
 
 
 func (h *HandleImage) Download(c *echo.Context) error {
