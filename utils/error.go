@@ -2,6 +2,7 @@ package utils
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 )
 
@@ -10,6 +11,15 @@ const (
 	UNSUPPORTED_TYPE   string = "unsupported type"
 	INVALID_CROP_PARAMETERS string = "invalid crop parameters"
 )
+
+func CheckErrFileIsExist(filename string, err error) bool {
+	if err.Error() == fmt.Sprintf("open ./img/%s: no such file or directory", filename) {
+		return  true
+	}
+
+	return false
+}
+
 
 func CheckType(typefile string) error {
 	typeImage := []string{

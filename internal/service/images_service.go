@@ -1,8 +1,10 @@
 package service
 
 import (
+	"fmt"
 	"io"
 	"mime/multipart"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -18,12 +20,18 @@ type ImagesService interface {
 	Resize(data []*multipart.FileHeader, width, height int) (string, error)
 	Compress(data []*multipart.FileHeader,size int) (string, error)
 	Crop(data []*multipart.FileHeader, width, height int) (string, error)
+	Downloads(w io.Writer,filename string) error
+	DeleteFileZip(filename string) error
 }
 
 type ImageService struct{}
 
 func NewServiceImage() ImagesService {
 	return &ImageService{}
+}
+
+func (i *ImageService) getNameFile(filename string) string  {
+	return strings.Trim(filename, "./img/")
 }
 
 func (i *ImageService) Convert(data []*multipart.FileHeader, extFormat string) (string, error) {
@@ -68,7 +76,7 @@ func (i *ImageService) Convert(data []*multipart.FileHeader, extFormat string) (
 
 	fileName := <-nameFileZip
 
-	return fileName, nil
+	return i.getNameFile(fileName), nil
 }
 
 func (i *ImageService) Resize(data []*multipart.FileHeader, width, height int) (string, error) {
@@ -113,7 +121,7 @@ func (i *ImageService) Resize(data []*multipart.FileHeader, width, height int) (
 
 	fileName := <-zipFileName
 
-	return fileName, nil
+	return i.getNameFile(fileName), nil
 }
 
 func (i *ImageService) Compress(data []*multipart.FileHeader,  size int) (string, error) {
@@ -156,9 +164,9 @@ func (i *ImageService) Compress(data []*multipart.FileHeader,  size int) (string
 		}
 	}
 
-	nameFile := <-FileNameZip
+	fileName := <-FileNameZip
 
-	return nameFile, nil
+	return i.getNameFile(fileName), nil
 }
 
 
@@ -205,5 +213,30 @@ func (i *ImageService) Crop(data []*multipart.FileHeader, width, height int) (st
 
 	fileName := <-zipFileName
 
-	return fileName, nil
+	return i.getNameFile(fileName), nil
+}
+
+
+func (i *ImageService) Downloads(w io.Writer,filename string) error {
+	pathfile := fmt.Sprintf("./img/%s", filename)
+	file, err := os.Open(pathfile)
+	if err != nil {
+		return  err
+	}
+
+	defer file.Close()
+
+	io.Copy(w, file)
+
+	return nil
+}
+
+
+func (i *ImageService) DeleteFileZip(filename string) error {
+	pathfile := fmt.Sprintf("./img/%s", filename)
+	if err:= os.Remove(pathfile);err != nil {
+		return  err
+	}
+
+	return nil
 }

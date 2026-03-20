@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"crypto/rand"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,8 +71,10 @@ func (j *JobChannels) createZip(NameZip string) (file *os.File, zipWriter *zip.W
 
 func (j *JobChannels) ProcessSaveZip(nameZip string, zipFile *zip.Writer) {
 	defer j.wgTozip.Done()
+	var f io.Writer
+	var err error
 	for v := range j.ZipEntity {
-		f, err := zipFile.Create(v.name)
+		f, err = zipFile.Create(v.name)
 		if err != nil {
 			j.errs <- err
 			continue
@@ -81,6 +84,7 @@ func (j *JobChannels) ProcessSaveZip(nameZip string, zipFile *zip.Writer) {
 			j.errs <- err
 			continue
 		}
+
 	}
 }
 
@@ -297,11 +301,11 @@ func (j *JobChannels) ProcessCrop(width, height int) {
 
 		if height != 0 && width != 0 {
 			newImg, err = bimg.NewImage(v.Image).Crop(width, height, bimg.GravityCentre)
-		}else if height == 0 {
+		} else if height == 0 {
 			newImg, err = bimg.NewImage(v.Image).CropByWidth(width)
-		}else if width == 0 {
+		} else if width == 0 {
 			newImg, err = bimg.NewImage(v.Image).CropByHeight(height)
-		}else {
+		} else {
 			j.errs <- fmt.Errorf(utils.INVALID_CROP_PARAMETERS)
 			continue
 		}

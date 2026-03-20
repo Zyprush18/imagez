@@ -18,6 +18,7 @@ func NewHandleImage(svc service.ImagesService) *HandleImage {
 	return &HandleImage{svc: svc}
 }
 
+
 func (h *HandleImage) Convert(c *echo.Context) error {
 	file, err := c.MultipartForm()
 	if err != nil {
@@ -190,4 +191,31 @@ func (h *HandleImage) Crop(c *echo.Context) error {
 		"file_name": filename,
 	}))
 
+}
+
+
+func (h *HandleImage) Download(c *echo.Context) error {
+	filename := c.QueryParam("filename")
+	if filename == "" {
+		return  c.JSON(http.StatusBadRequest, utils.NewResponse("Failed Download", "Query filename is not exists", map[string]string{}))
+	}
+	c.Attachment(filename, filename)
+	c.Response().Header().Set("Content-Type", "application/octet-stream")
+
+	if err := h.svc.Downloads(c.Response(),filename);err != nil {
+		c.Logger().Error(err.Error())
+		if utils.CheckErrFileIsExist(filename, err) {
+			return c.JSON(http.StatusNotFound, utils.NewResponse("Failed Download File", "File not found", map[string]string{}))
+		}
+
+		return c.JSON(http.StatusInternalServerError,utils.NewResponse( "Failed Download File", "Internal Server Errror", map[string]string{}))
+
+	}
+
+	if err:= h.svc.DeleteFileZip(filename) ;err != nil {
+		c.Logger().Error(err.Error())
+		return c.JSON(http.StatusInternalServerError,utils.NewResponse( "Failed Download File", "Internal Server Errror", map[string]string{}))
+	}
+
+	return c.JSON(http.StatusOK, utils.NewResponse("Success Download Zip Image", "", map[string]string{}))
 }
