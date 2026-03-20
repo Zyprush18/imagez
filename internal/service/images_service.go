@@ -35,37 +35,52 @@ func (i *ImageService) getNameFile(filename string) string  {
 	return strings.Trim(filename, "./img/")
 }
 
-func (i *ImageService) Convert(data []*multipart.FileHeader, extFormat string) (string, error) {
-	FileData := make(chan utils.ImageOri, len(data))
-	errs := make(chan error, worker)
-	nameFileZip := make(chan string, 1)
+func (i *ImageService) setImageOri(data []*multipart.FileHeader, imgFile chan<- utils.ImageOri, types string) error {
 	for _, v := range data {
 		typeFile := v.Header.Get("Content-Type")
 		if err := utils.CheckType(typeFile); err != nil {
-			return "", err
+			return err
 		}
 
 		src, err := v.Open()
 		if err != nil {
-			return "", err
+			return err
 		}
 
 		file, err := io.ReadAll(src)
 		if err != nil {
-			return "", err
+			return err
 		}
 
 		src.Close()
 
-		FileData <- utils.ImageOri{
-			Name:  strings.TrimSuffix(v.Filename, filepath.Ext(v.Filename)),
+		data := utils.ImageOri{
 			Image: file,
 		}
 
+		if types == "convert" {
+			data.Name = strings.TrimSuffix(v.Filename, filepath.Ext(v.Filename))
+		}else {
+			data.Name = v.Filename
+
+		}
+
+		imgFile <- data
+	}
+
+	return nil
+}
+
+func (i *ImageService) Convert(data []*multipart.FileHeader, extFormat string) (string, error) {
+	FileData := make(chan utils.ImageOri, len(data))
+	errs := make(chan error, worker)
+	nameFileZip := make(chan string, 1)
+
+	if err:= i.setImageOri(data, FileData, "convert"); err != nil {
+		return "", err
 	}
 
 	close(FileData)
-
 	convert := pkg.NewJobChannel(worker, FileData, nameFileZip, errs, extFormat)
 	convert.ConvertJob()
 
@@ -85,28 +100,32 @@ func (i *ImageService) Resize(data []*multipart.FileHeader, width, height int) (
 	zipFileName := make(chan string, 1)
 	errs := make(chan error, worker)
 
-	for _, v := range data {
-		typeFile := v.Header.Get("Content-Type")
-		if err := utils.CheckType(typeFile); err != nil {
-			return "", err
-		}
+	// for _, v := range data {
+	// 	typeFile := v.Header.Get("Content-Type")
+	// 	if err := utils.CheckType(typeFile); err != nil {
+	// 		return "", err
+	// 	}
 
-		src, err := v.Open()
-		if err != nil {
-			return "", err
-		}
+	// 	src, err := v.Open()
+	// 	if err != nil {
+	// 		return "", err
+	// 	}
 
-		file, err := io.ReadAll(src)
-		if err != nil {
-			return "", err
-		}
+	// 	file, err := io.ReadAll(src)
+	// 	if err != nil {
+	// 		return "", err
+	// 	}
 
-		src.Close()
+	// 	src.Close()
 
-		ImageData <- utils.ImageOri{
-			Name:  v.Filename,
-			Image: file,
-		}
+	// 	ImageData <- utils.ImageOri{
+	// 		Name:  v.Filename,
+	// 		Image: file,
+	// 	}
+	// }
+
+	if err := i.setImageOri(data, ImageData, "resize"); err != nil {
+		return "", err
 	}
 
 	close(ImageData)
@@ -130,28 +149,8 @@ func (i *ImageService) Compress(data []*multipart.FileHeader,  size int) (string
 	FileNameZip := make(chan string, 1)
 	errs := make(chan error, worker)
 
-	for _, v := range data {
-		typeFile := v.Header.Get("Content-Type")
-		if err := utils.CheckType(typeFile); err != nil {
-			return "", err
-		}
-
-		src, err := v.Open()
-		if err != nil {
-			return "", err
-		}
-
-		file, err := io.ReadAll(src)
-		if err != nil {
-			return "", err
-		}
-
-		src.Close()
-
-		imgFile <- utils.ImageOri{
-			Name:  v.Filename,
-			Image: file,
-		}
+	if err := i.setImageOri(data, imgFile, "compress"); err != nil {
+		return "", err
 	}
 
 	close(imgFile)
@@ -177,28 +176,8 @@ func (i *ImageService) Crop(data []*multipart.FileHeader, width, height int) (st
 	zipFileName := make(chan string, 1)
 	errs := make(chan error, worker)
 
-	for _, v := range data {
-		typeFile := v.Header.Get("Content-Type")
-		if err := utils.CheckType(typeFile); err != nil {
-			return "", err
-		}
-
-		src, err := v.Open()
-		if err != nil {
-			return "", err
-		}
-
-		file, err := io.ReadAll(src)
-		if err != nil {
-			return "", err
-		}
-
-		src.Close()
-
-		imgFile <- utils.ImageOri{
-			Name:  v.Filename,
-			Image: file,
-		}
+	if err := i.setImageOri(data, imgFile, "crop"); err != nil {
+		return "", err
 	}
 
 	close(imgFile)
@@ -222,28 +201,8 @@ func (i *ImageService) Watermark(data []*multipart.FileHeader, textWatermark str
 	zipFileName := make(chan string, 1)
 	errs := make(chan error, worker)
 
-	for _, v := range data {
-		typeFile := v.Header.Get("Content-Type")
-		if err := utils.CheckType(typeFile); err != nil {
-			return "", err
-		}
-
-		src, err := v.Open()
-		if err != nil {
-			return "", err
-		}
-
-		file, err := io.ReadAll(src)
-		if err != nil {
-			return "", err
-		}
-
-		src.Close()
-
-		imgFile <- utils.ImageOri{
-			Name:  v.Filename,
-			Image: file,
-		}
+	if err := i.setImageOri(data, imgFile, "watermark"); err != nil {
+		return "", err
 	}
 
 	close(imgFile)
